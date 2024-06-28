@@ -28,9 +28,9 @@ export class TaskController {
         return response;
     }
 
-    @Get(':id')
-    async findById(@Param('id') id: string) {
-        let response = await this.taskService.findById(id);
+    @Get(':position')
+    async findById(@Param('position') position: string) {
+        let response = await this.taskService.findById(position);
 
         return response;
     }
