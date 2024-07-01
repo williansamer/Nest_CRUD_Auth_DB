@@ -1,30 +1,40 @@
 import { HttpException, HttpStatus, Injectable, UseGuards } from '@nestjs/common';
-import { FindAllParameters, StatusDefinition, TaskDto } from './dtos/task.dto';
+import { FindAllParameters, StatusDefinition, TaskDto, TaskDtoParameters } from './dtos/task.dto';
 import { v4 as uuid } from 'uuid';
 import { AuthGuard } from 'src/auth/auth.guard';
+import { InjectRepository } from '@nestjs/typeorm';
+import { TaskEntity } from 'src/db/entities/task.entity';
+import { FindOptionsWhere, Like, Repository } from 'typeorm';
 
 @Injectable()
 export class TaskService {
-
-    private tasks: TaskDto[] = [];
+    constructor(
+        @InjectRepository(TaskEntity)
+        private readonly taskRepository: Repository<TaskEntity>
+    ) {}
 
     @UseGuards(AuthGuard)
     async create(task: TaskDto): Promise<TaskDto> {
-        let taskAlreadyExists = await this.tasks.filter((item) => item.id === task.id);
+        let taskAlreadyExists = await this.taskRepository.findOne({
+            where: {title: task.title}
+        })
 
-        if (taskAlreadyExists.length) {
+        if (taskAlreadyExists) {
             throw new HttpException('Task already exists', HttpStatus.CONFLICT);
         }
 
-        task.id = uuid();
-        task.expirationDate = new Date();
-        task.position = this.tasks.length + 1;
-        if (!task.status) {
-            task.status = StatusDefinition.TO_DO;
-        }
-        this.tasks.push(task);
+        const dbTask = new TaskEntity();
 
-        return task;
+        dbTask.title = task.title;
+        dbTask.description = task.description;
+        dbTask.expirationDate = new Date();
+        
+        if (!dbTask.status) {
+            dbTask.status = StatusDefinition.TO_DO;
+        }
+        await this.taskRepository.save(dbTask);
+
+        return this.mapTaskEntity(dbTask);
     }
 
     @UseGuards(AuthGuard)
@@ -32,67 +42,100 @@ export class TaskService {
         task.forEach((item) => {
             item.id = uuid();
             item.expirationDate = new Date();
-            item.position = this.tasks.length + 1;
             if (!item.status) {
                 item.status = StatusDefinition.TO_DO;
             }
-            this.tasks.push(item);
+            const dbTask = new TaskEntity();
+            dbTask.title = item.title;
+            dbTask.description = item.description;
+            dbTask.expirationDate = new Date();
+
+            this.taskRepository.save(dbTask);
         })
 
         return {message: 'Added'}
     }
 
     async findAll(params: FindAllParameters): Promise<TaskDto[]> {
-        let getTasks = await this.tasks.filter(item => {
-            let match = true;
+        const searchTasks: FindOptionsWhere<TaskEntity> = {};
 
-            if (params.title !== undefined && !item.title.includes(params.title)) {
-                match = false;
+        if (params.title) {
+            searchTasks.title = Like(`%${params.title}%`)
+        }
+        if (params.status) {
+            searchTasks.status = Like(`%${params.status}%`)
+        }
+        
+        const tasksFound = await this.taskRepository.find({
+            where: {
+                title: searchTasks.title,
+                status: searchTasks.status
             }
-            if (params.status !== undefined && !item.status.includes(params.status)) {
-                match = false;
-            }
-
-            return match;
         })
 
-        return getTasks;
+        return tasksFound.map((task) => this.mapTaskEntity(task))
     }
 
-    async findById(position: string): Promise<TaskDto[]> {
-        let getTask = await this.tasks.filter((item) => item.position.toString() === position);
+    async findById(id: string): Promise<TaskDto> {
+        let getTask = await this.taskRepository.findOne({
+            where: {id: id}
+        });
 
-        if (!getTask.length) {
-            throw new HttpException(`Can not find the task with position ${position}`, HttpStatus.NOT_FOUND);
+        if (!getTask) {
+            throw new HttpException(`Can not find the task with id ${id}`, HttpStatus.NOT_FOUND);
         }
 
         return getTask;
     }
 
     @UseGuards(AuthGuard)
-    async update(task: TaskDto): Promise<object> {
-        let taskIndex = await this.tasks.findIndex(item => item.position === task.position);
+    async update(id: string, task: TaskDto): Promise<object> {
+        const getTask = await this.taskRepository.findOne({
+            where: {id}
+        })
 
-        if (taskIndex >= 0) {
-            this.tasks[taskIndex].title = this.tasks[taskIndex].title !== task.title ? task.title : this.tasks[taskIndex].title;
-            this.tasks[taskIndex].description = this.tasks[taskIndex].description !== task.description ? task.description : this.tasks[taskIndex].description;
-            this.tasks[taskIndex].status = this.tasks[taskIndex].status !== task.status ? task.status : this.tasks[taskIndex].status;
-            return {message: 'UPDATED', task: this.tasks[taskIndex]};
+        if (!getTask) {
+            throw new HttpException('Task not Found!!!', HttpStatus.BAD_REQUEST)
         }
 
-        throw new HttpException('Task not Found!!!', HttpStatus.BAD_REQUEST)
+        await this.taskRepository.update(id, this.mapTaskDtoEntity(task));
+
+        return {
+            message: 'UPDATED',
+            task: this.mapTaskDtoEntity(task)
+        }
     }
 
     @UseGuards(AuthGuard)
     async delete(id: string): Promise<object> {
-        let taskIndex = await this.tasks.findIndex((item) => item.id === id);
+        const getTask = await this.taskRepository.findOne({
+            where: {id}
+        })
 
-        if (!(taskIndex >= 0)) {
+        if (!getTask) {
             throw new HttpException(`Can not find the task with id ${id}`, HttpStatus.NOT_FOUND);
         }
 
-        await this.tasks.splice(taskIndex, 1);
+        await this.taskRepository.delete(getTask)
 
         return {message: 'DELETED'}
+    }
+
+    private mapTaskEntity(task: TaskDto) {
+        return {
+            id: task.id,
+            title: task.title,
+            description: task.description,
+            status: task.status,
+            expirationDate: task.expirationDate
+        }
+    }
+
+    private mapTaskDtoEntity(task: TaskDto): Partial<TaskEntity> {
+        return {
+            title: task.title,
+            description: task.description,
+            status: task.status && task.status
+        }
     }
 }

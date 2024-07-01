@@ -28,13 +28,14 @@ export class TaskDto {
     @IsDate()
     @IsOptional()
     expirationDate?: Date;
-
-    @IsNumber()
-    @IsOptional()
-    position?: number
 }
 
 export interface FindAllParameters {
     title: string;
     status: string
+}
+
+export class TaskDtoParameters {
+    @IsUUID()
+    id: string;
 }

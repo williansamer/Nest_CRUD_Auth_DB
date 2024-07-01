@@ -7,6 +7,7 @@
 
 ## Realizado a Validação
 
+## Implementado o DB Postgres
 
 
 

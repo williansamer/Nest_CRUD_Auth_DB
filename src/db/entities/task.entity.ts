@@ -16,6 +16,4 @@ export class TaskEntity {
 
     @Column({type: 'timestamptz', name: 'expiration_date'})
     expirationDate?: Date;
-
-    position?: number
 }
